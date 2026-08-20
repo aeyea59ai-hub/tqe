@@ -19,6 +19,7 @@ export interface BacktestTrade {
   tp1: number;
   tp2: number;
   tp3: number;
+  tp2Hit: boolean;
   quantity: number;
   marginUsd: number;
   leverage: number;
@@ -179,8 +180,8 @@ export function runHistoricalBacktest(
           exitTriggered = true;
           exitPrice = plan.tp3;
           exitReason = 'TP3_HIT';
-        } else if (currentCandle.high >= plan.tp2 && !trade.tp2) {
-          trade.tp2 = plan.tp2;
+        } else if (currentCandle.high >= plan.tp2 && !trade.tp2Hit) {
+          trade.tp2Hit = true;
         }
       } else {
         if (currentCandle.high >= plan.stopLoss) {
@@ -329,6 +330,7 @@ export function runHistoricalBacktest(
             tp1: plan.tp1,
             tp2: plan.tp2,
             tp3: plan.tp3,
+            tp2Hit: false,
             quantity,
             marginUsd,
             leverage: leverageUsed,
