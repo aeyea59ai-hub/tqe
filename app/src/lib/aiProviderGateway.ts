@@ -1,0 +1,145 @@
+import { AIProvider, AIProviderResponse, RoutingMode } from '../types';
+import { db } from './db';
+import { assertProviderUrlAllowed } from './security/providerUrlPolicy';
+import { assertValidSecretRef, redactProvider } from './security/secretRef';
+import crypto from 'crypto';
+
+import { GeminiAdapter } from './adapters/geminiAdapter';
+import { OpenAiCompatibleAdapter } from './adapters/openAiCompatibleAdapter';
+
+export class AIProviderFactory {
+  static createAdapter(provider: AIProvider): ProviderAdapter {
+    switch (provider.provider_type) {
+      case 'GEMINI':
+        return new GeminiAdapter(provider);
+      case 'OPENAI':
+      case 'CUSTOM_OPENAI':
+      case 'OLLAMA_LOCAL':
+      case 'LLAMACPP_LOCAL':
+      case 'OLLAMA_CLOUD':
+      case 'KIMI_CLOUD':
+      case 'MOCK':
+      default:
+        return new OpenAiCompatibleAdapter(provider);
+    }
+  }
+
+  static async getEligibleProvider(privacyRequired: boolean): Promise<ProviderAdapter | null> {
+    const providers = AIProviderGateway.getProviders();
+    const routingMode = AIProviderGateway.getRoutingMode();
+    
+    let candidates = providers.filter(p => p.enabled);
+
+    if (routingMode === 'LOCAL_ONLY') {
+      candidates = candidates.filter(p => p.privacy_class === 'LOCAL');
+    } else if (routingMode === 'CLOUD_ONLY') {
+      candidates = candidates.filter(p => p.privacy_class === 'CLOUD');
+    } else if (privacyRequired || routingMode === 'PRIVACY_FIRST') {
+      const localCandidates = candidates.filter(p => p.privacy_class === 'LOCAL');
+      if (localCandidates.length > 0) {
+        candidates = localCandidates;
+      }
+    }
+
+    if (candidates.length === 0) return null;
+    
+    // Sort by priority
+    candidates.sort((a, b) => b.priority - a.priority);
+
+    // Naive selection for now, could be improved with health checks and fallbacks
+    return this.createAdapter(candidates[0]);
+  }
+}
+
+
+export interface ProviderAdapter {
+  list_models(): Promise<string[]>;
+  health_check(): Promise<boolean>;
+  chat(prompt: string, history?: any[], context?: any): Promise<AIProviderResponse>;
+  stream_chat(prompt: string, onChunk: (text: string) => void, history?: any[]): Promise<AIProviderResponse>;
+  capabilities(): Record<string, boolean>;
+  normalize_error(err: any): { code: string, message: string };
+  estimate_usage(prompt: string): number;
+  close(): void;
+}
+
+export class AIProviderGateway {
+  static getProviders(): AIProvider[] {
+    const stmt = db.prepare('SELECT * FROM ai_providers ORDER BY priority DESC');
+    const rows = stmt.all() as any[];
+    return rows.map(r => ({
+      ...r,
+      enabled: r.enabled === 1,
+      streaming_enabled: r.streaming_enabled === 1,
+      supports_chat: r.supports_chat === 1,
+      supports_tools: r.supports_tools === 1,
+      supports_json_schema: r.supports_json_schema === 1,
+      supports_vision: r.supports_vision === 1,
+      supports_embeddings: r.supports_embeddings === 1,
+    }));
+  }
+
+  static getRoutingMode(): RoutingMode {
+    const stmt = db.prepare("SELECT routing_mode FROM ai_routing_policy WHERE id = 'default'");
+    const res = stmt.get() as { routing_mode: RoutingMode };
+    return res ? res.routing_mode : 'AUTO';
+  }
+
+  /**
+   * Providers as returned across the API boundary. Credential values are never
+   * included; only the name of the environment indirection and whether it
+   * currently resolves.
+   */
+  static getPublicProviders() {
+    return AIProviderGateway.getProviders().map(redactProvider);
+  }
+
+  /**
+   * Validate owner-supplied provider fields before they are persisted.
+   * `base_url` is constrained by the SSRF policy and `secret_ref` must be an
+   * environment indirection, so an inline API key can never reach the database.
+   */
+  static validateProviderInput(provider: Partial<AIProvider>): {
+    base_url: string | undefined;
+    secret_ref: string;
+  } {
+    const secret_ref = assertValidSecretRef(provider.secret_ref);
+
+    // MOCK providers make no outbound request and therefore need no base_url.
+    if (provider.provider_type === 'MOCK' && !provider.base_url) {
+      return { base_url: undefined, secret_ref };
+    }
+
+    const { url } = assertProviderUrlAllowed(provider.base_url);
+    return { base_url: url.toString().replace(/\/$/, ''), secret_ref };
+  }
+
+  static addProvider(provider: Partial<AIProvider>) {
+    const { base_url, secret_ref } = AIProviderGateway.validateProviderInput(provider);
+    const id = crypto.randomUUID();
+    const stmt = db.prepare(`
+      INSERT INTO ai_providers (
+        id, provider_type, display_name, enabled, priority, base_url, model, secret_ref,
+        routing_eligibility, privacy_class, timeout_seconds, max_retries, streaming_enabled,
+        supports_chat, supports_tools, supports_json_schema, supports_vision, supports_embeddings,
+        context_window, max_output_tokens, health_status, created_at_utc, updated_at_utc
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )
+    `);
+    
+    const now = new Date().toISOString();
+    stmt.run(
+      id, provider.provider_type, provider.display_name, provider.enabled ? 1 : 0, 
+      provider.priority || 0, base_url, provider.model, secret_ref,
+      provider.routing_eligibility || 'ALL', provider.privacy_class || 'CLOUD',
+      provider.timeout_seconds || 30, provider.max_retries || 2, provider.streaming_enabled ? 1 : 0,
+      provider.supports_chat ? 1 : 0, provider.supports_tools ? 1 : 0, provider.supports_json_schema ? 1 : 0,
+      provider.supports_vision ? 1 : 0, provider.supports_embeddings ? 1 : 0,
+      provider.context_window || 8192, provider.max_output_tokens || 4096, 
+      'UNKNOWN', now, now
+    );
+    return id;
+  }
+}
+

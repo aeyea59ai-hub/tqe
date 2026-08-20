@@ -1,0 +1,10 @@
+{
+  "_comment": "Pre-existing Math.random() call sites inherited from the C+ Phase 1 prototype. This baseline may only shrink; Phase 5 drives it to zero. See docs/adr/0005-fabricated-data-policy.md.",
+  "_recorded": "2026-08-20",
+  "files": {
+    "app/server.ts": 12,
+    "app/src/App.tsx": 2,
+    "app/src/components/QuantAgentsLive.tsx": 6,
+    "app/src/lib/backtestEngine.ts": 4
+  }
+}

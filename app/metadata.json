@@ -1,0 +1,8 @@
+{
+  "name": "Signal Desk C+ UI",
+  "description": "A local-first crypto futures intelligence and paper-trading-only research workstation. Deterministic code owns all decision-critical numbers; AI is read-only and advisory. No live trading surface.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
