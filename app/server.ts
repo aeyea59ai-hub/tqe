@@ -169,7 +169,28 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // API 1: Market Symbols
+  // Simple in-memory rate limiter: max 100 requests per minute per IP
+  const _rlCounts = new Map<string, { count: number; resetAt: number }>();
+  app.use('/api/', (req, res, next) => {
+    const ip = (req.socket.remoteAddress ?? 'unknown');
+    const now = Date.now();
+    const window = 60_000;
+    const limit = 100;
+    let entry = _rlCounts.get(ip);
+    if (!entry || now > entry.resetAt) {
+      entry = { count: 1, resetAt: now + window };
+      _rlCounts.set(ip, entry);
+    } else {
+      entry.count += 1;
+    }
+    if (entry.count > limit) {
+      res.status(429).json({ success: false, error: 'Too Many Requests' });
+      return;
+    }
+    next();
+  });
+
+
   app.get('/api/market/symbols', async (req, res) => {
     try {
       // Fetch live Binance Futures exchange info if reachable
