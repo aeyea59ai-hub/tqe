@@ -18,11 +18,21 @@ import { runHistoricalBacktest, generateHistoricalCandles2023ToPresent } from '.
 import { Candle, CanonicalSnapshot, CouncilDeliberation, DerivativesData, FrozenEvidenceBundle, MarketContext, OrderBook, QualityReport, RoutingMode, ScanCandidate, SymbolInfo } from './src/types';
 import { assertBoundedNumber, assertInterval, assertSymbol } from './src/lib/security/marketParams';
 import { ApiError, sendError } from './src/lib/security/httpErrors';
+import rateLimit from 'express-rate-limit';
 
 const ROUTING_MODES: RoutingMode[] = [
   'AUTO', 'MANUAL', 'LOCAL_ONLY', 'CLOUD_ONLY',
   'PRIVACY_FIRST', 'QUALITY_FIRST', 'SPEED_FIRST', 'COST_FIRST',
 ];
+
+// Local-first single-owner server (loopback-only per Blueprint 0046).
+// Rate limiting defends against runaway client loops or accidental DoS.
+const apiMutationLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -597,7 +607,7 @@ async function startServer() {
     } else {
       const distPath = path.join(process.cwd(), 'dist');
       app.use(express.static(distPath));
-      app.get('*', (req, res) => {
+      app.get('*', apiMutationLimiter, (req, res) => {
         res.sendFile(path.join(distPath, 'index.html'));
       });
     }
@@ -625,7 +635,7 @@ app.post('/api/v1/ai/providers', (req, res) => {
   }
 });
 
-app.delete('/api/v1/ai/providers/:id', (req, res) => {
+app.delete('/api/v1/ai/providers/:id', apiMutationLimiter, (req, res) => {
   try {
     db.prepare('DELETE FROM ai_providers WHERE id = ?').run(req.params.id);
     res.json({ success: true });
@@ -634,7 +644,7 @@ app.delete('/api/v1/ai/providers/:id', (req, res) => {
   }
 });
 
-app.patch('/api/v1/ai/providers/:id', (req, res) => {
+app.patch('/api/v1/ai/providers/:id', apiMutationLimiter, (req, res) => {
   // Simplified for mvp - in reality, dynamic SQL builder or individual fields
   try {
     const p = req.body ?? {};
@@ -656,7 +666,7 @@ app.get('/api/v1/ai/routing', (req, res) => {
   res.json({ success: true, routing_mode: AIProviderGateway.getRoutingMode() });
 });
 
-app.patch('/api/v1/ai/routing', (req, res) => {
+app.patch('/api/v1/ai/routing', apiMutationLimiter, (req, res) => {
   try {
     const mode = req.body?.routing_mode;
     if (!ROUTING_MODES.includes(mode)) {

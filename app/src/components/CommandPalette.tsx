@@ -129,7 +129,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   key={sym.symbol}
                   onClick={() => {
                     onSelectSymbol(sym.symbol);
-                    onNavigateTab('workspace');
+                    handleNav('workspace');
                     onClose();
                   }}
                   className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-slate-800/80 text-left transition group"

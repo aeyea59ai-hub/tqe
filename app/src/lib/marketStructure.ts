@@ -79,9 +79,6 @@ export function detectStructureBreaks(candles: Candle[], swings: SwingPoint[]): 
 
   // CHoCH detection: breaking prior swing high in downtrend or prior swing low in uptrend
   if (highSwings.length >= 2 && lowSwings.length >= 2) {
-    const priorLow = lowSwings[lowSwings.length - 2];
-    const priorHigh = highSwings[highSwings.length - 2];
-
     if (recentHigh && recentHigh.type === 'LH' && lastClose > recentHigh.price) {
       lastChoch = {
         price: recentHigh.price,

@@ -195,7 +195,7 @@ Return JSON conforming strictly to:
     }
 
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(response.output_text || '{}');
     const opinions: AgentOpinion[] = parsed.opinions || generateFallbackOpinions(snapshot, direction, isCounterTrend);
 
     const arbiterVerdict = parsed.arbiterVerdict || {
