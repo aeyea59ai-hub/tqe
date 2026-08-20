@@ -1,0 +1,31 @@
+Your first response must begin exactly:
+
+SOURCE_INTAKE_STARTED
+
+Do not generate or modify an application yet.
+
+PHASE 0 — OPEN PACKAGE VERIFICATION
+
+1. List the repository root paths you can actually access.
+2. Confirm the presence of `signal-desk/`, `developer-handoff/`, `blueprints/`, `skills/`, `baseline-evidence/U7/`, `99_RELEASE/PACKAGE_MANIFEST.json` and `99_RELEASE/PAYLOAD_SHA256SUMS.txt`.
+3. If any are unavailable because the package was not expanded into the workspace, output SOURCE_INTAKE_BLOCKED, list the missing paths and stop. Do not create a replacement app.
+4. Verify the internal payload hashes and package manifest.
+5. Identify the canonical source, architecture, version, migrations, tests, verifier, source identity and current U7/U8 status.
+6. Run only non-mutating baseline checks.
+7. Report contradictions and genuine blockers.
+8. Confirm there is no authorized live-trading, private-key, signed-order, transfer or withdrawal surface.
+
+After successful intake output:
+
+SOURCE_INTAKE_VERIFIED
+CANONICAL_ROOT=signal-desk/
+CURRENT_GATE=U0_SOURCE_BASELINE
+
+Then read, in order:
+
+- 00_READ_ME_FIRST.md
+- 01_PROJECT_STATUS_AND_DECISION_TABLE.md
+- developer-handoff/04_EXECUTION/01_MASTER_BUILD_FROM_START_TO_FINISH_AND_RUN_ALL_TESTS.md
+- MASTER_DEVELOPER_EXECUTION_PROMPT.md
+
+Execute incrementally from beginning to end. Do not return another blueprint or greenfield plan.

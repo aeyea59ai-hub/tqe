@@ -1,0 +1,39 @@
+PROJECT=SIGNAL_DESK
+MODE=IMPORT_AND_EVOLVE_EXISTING_SOURCE_IN_PLACE
+CANONICAL_SOURCE_ROOT=signal-desk/
+DEVELOPER_HANDOFF_ROOT=developer-handoff/
+TARGET=WEB_APPLICATION
+NEW_APP_SCAFFOLD=FORBIDDEN
+ANDROID_REBUILD=FORBIDDEN
+NODE_BACKEND_REWRITE=FORBIDDEN
+FRAMEWORK_REPLACEMENT=FORBIDDEN
+FIREBASE_MIGRATION=FORBIDDEN
+LIVE_TRADING=FORBIDDEN
+PRIVATE_EXCHANGE_KEYS=FORBIDDEN
+SIGNED_EXCHANGE_REQUESTS=FORBIDDEN
+PAPER_TRADING_ONLY=TRUE
+DEVELOPER_OUTPUT_LANGUAGE=ENGLISH
+PRODUCT_UI_LANGUAGES=ARABIC_AND_ENGLISH
+
+Work on the existing Signal Desk source only. Do not create a replacement application, parallel repository, second backend, second database, second strategy engine, second journal or generic dashboard.
+
+Preserve React/Vite/strict TypeScript/React Router plus Python FastAPI/Pydantic/SQLAlchemy/Alembic/SQLite/APScheduler/REST/WebSocket/local-first architecture.
+
+The package includes blueprints for ATM, AI Trading Desk, Skill Control Plane and full-history reconstruction. Their presence does not mean they are implemented. Verify every feature against canonical source and fresh execution.
+
+Before modifying files, confirm these exact paths exist:
+- signal-desk/
+- developer-handoff/
+- blueprints/
+- skills/
+- baseline-evidence/U7/
+- 99_RELEASE/PACKAGE_MANIFEST.json
+- 99_RELEASE/PAYLOAD_SHA256SUMS.txt
+
+If they are unavailable because the ZIP was not expanded into the workspace, return SOURCE_INTAKE_BLOCKED and do not scaffold anything.
+
+If Python/FastAPI cannot execute, return FASTAPI_RUNTIME_BLOCKED_IN_AI_STUDIO. Never rewrite the backend to Node merely to enable preview.
+
+Deterministic code owns prices, indicators, strategy rules, risk, position sizing, leverage, liquidation modelling, fees, funding, slippage, paper state, hashes and lifecycle. AI is read-only, evidence-bound and cannot override vetoes or signed state.
+
+Use incremental implementation and immediate validation. Preserve red evidence, fix root causes, add regressions and rerun. Never claim COMPLETE from generated files, previews, package validity or historical evidence.

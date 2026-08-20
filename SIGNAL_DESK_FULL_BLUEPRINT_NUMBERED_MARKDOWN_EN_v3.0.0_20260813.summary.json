@@ -1,0 +1,44 @@
+{
+  "package": "SIGNAL_DESK_FULL_BLUEPRINT_NUMBERED_MARKDOWN_EN_v3.0.0_20260813.zip",
+  "version": "3.0.0",
+  "date": "2026-08-13",
+  "sha256": "10a8c86f2ed9970cc494f5e2c753d38816ffdd193a92726c7ff0286ba86da440",
+  "source_package": "SIGNAL_DESK_GOOGLE_AI_STUDIO_COMPLETE_DEVELOPER_PACKAGE_v2.0.0_20260813.zip",
+  "source_package_sha256_actual": "24c6d44521562650d33f3e5e05f266344d661fbbf9ebbc5e3a927ad8eaa70dee",
+  "canonical_source_identity": "63be8ecd83eeae88e1affaf46d85b2ef6ed70d51",
+  "archive": {
+    "zip_crc": true,
+    "entries": 71,
+    "encrypted_entries": 0,
+    "non_markdown_entries": [],
+    "duplicate_names": [],
+    "path_traversal_entries": [],
+    "absolute_path_entries": [],
+    "symlink_entries": [],
+    "nested_archive_extensions": [],
+    "sequential_numbering": true,
+    "utf8_failures": [],
+    "compressed_bytes": 26016270,
+    "uncompressed_bytes": 26005564
+  },
+  "coverage": {
+    "source_entries": 4269,
+    "represented_entries": 4231,
+    "utf8_text_entries": 3499,
+    "binary_metadata_entries": 732,
+    "original_language_identity_only_entries": 38,
+    "curated_files": 26,
+    "consolidated_volumes": 40,
+    "support_files": 5
+  },
+  "status": {
+    "documentation_package": "COMPLETE_AS_DOCUMENTATION_PACKAGE",
+    "application": "NOT_PROVEN_COMPLETE",
+    "u7": "BLOCKED",
+    "u8": "PENDING_NOT_RELEASED",
+    "atm": "TARGET_EXPERIMENTAL_NOT_PROVEN_INTEGRATED",
+    "ai_trading_desk": "NOT_PROVEN_IMPLEMENTED",
+    "skill_control_plane": "NOT_PROVEN_IMPLEMENTED",
+    "full_history_reconstruction": "NOT_COMPLETED"
+  }
+}
