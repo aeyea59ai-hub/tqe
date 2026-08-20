@@ -6,6 +6,7 @@ import express from 'express';
 import path from 'path';
 import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
+import { rateLimit } from 'express-rate-limit';
 import { GoogleGenAI } from '@google/genai';
 import { computeTechnicalFeatures } from './src/lib/indicators';
 import { computeMarketStructure } from './src/lib/marketStructure';
@@ -169,26 +170,14 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Simple in-memory rate limiter: max 100 requests per minute per IP
-  const _rlCounts = new Map<string, { count: number; resetAt: number }>();
-  app.use('/api/', (req, res, next) => {
-    const ip = (req.socket.remoteAddress ?? 'unknown');
-    const now = Date.now();
-    const window = 60_000;
-    const limit = 100;
-    let entry = _rlCounts.get(ip);
-    if (!entry || now > entry.resetAt) {
-      entry = { count: 1, resetAt: now + window };
-      _rlCounts.set(ip, entry);
-    } else {
-      entry.count += 1;
-    }
-    if (entry.count > limit) {
-      res.status(429).json({ success: false, error: 'Too Many Requests' });
-      return;
-    }
-    next();
+  // Rate limit all API routes: 100 requests per minute per IP
+  const apiLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
   });
+  app.use('/api/', apiLimiter);
 
 
   app.get('/api/market/symbols', async (req, res) => {
