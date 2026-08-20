@@ -43,6 +43,7 @@ import {
   getMarketStoreItem,
   NormalizedMarketItem,
 } from './lib/marketStore';
+import { parseBinanceBookTickerMessage } from './lib/binanceBookTicker';
 
 const SIDEBAR_PREFERENCE_KEY = 'signaldesk.ui.cplus.sidebar-collapsed.v1';
 
@@ -192,23 +193,29 @@ export default function App() {
   useEffect(() => {
     const socket = new WebSocket('wss://fstream.binance.com/ws/!bookTicker');
     let updateBuffer: Record<string, NormalizedMarketItem> = {};
+    const lastUpdateIdBySymbol: Record<string, number> = {};
 
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        if (!data.s) return;
-        const existing = getMarketStoreItem(data.s);
+        const ticker = parseBinanceBookTickerMessage(JSON.parse(event.data));
+        if (!ticker) return;
+
+        const existing = getMarketStoreItem(ticker.symbol);
         if (!existing) return;
 
-        const bestBid = Number.parseFloat(data.b);
-        const bestAsk = Number.parseFloat(data.a);
-        const midPrice = (bestBid + bestAsk) / 2;
-        updateBuffer[data.s] = {
-          ...(updateBuffer[data.s] || existing),
-          lastPrice: midPrice,
-          markPrice: midPrice,
-          bestBid,
-          bestAsk,
+        const previousUpdateId = lastUpdateIdBySymbol[ticker.symbol];
+        if (previousUpdateId !== undefined && ticker.updateId <= previousUpdateId) return;
+        lastUpdateIdBySymbol[ticker.symbol] = ticker.updateId;
+
+        updateBuffer[ticker.symbol] = {
+          ...(updateBuffer[ticker.symbol] || existing),
+          lastPrice: ticker.midPrice,
+          markPrice: ticker.midPrice,
+          bestBid: ticker.bestBid,
+          bestAsk: ticker.bestAsk,
+          timestamp: ticker.transactionTime || ticker.eventTime,
+          source: 'Binance bookTicker',
+          stale: false,
         };
       } catch {
         // Preserve the existing runtime behavior: ignore malformed stream updates.

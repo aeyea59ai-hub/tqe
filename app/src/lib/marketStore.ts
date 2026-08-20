@@ -44,7 +44,7 @@ const subscribers: Set<() => void> = new Set();
 export function updateMarketStoreItem(item: NormalizedMarketItem) {
   marketStore[item.symbol] = {
     ...item,
-    timestamp: Date.now(),
+    timestamp: Number.isFinite(item.timestamp) && item.timestamp > 0 ? item.timestamp : Date.now(),
     stale: false,
   };
   notifySubscribers();
@@ -53,9 +53,10 @@ export function updateMarketStoreItem(item: NormalizedMarketItem) {
 export function batchUpdateMarketStore(items: NormalizedMarketItem[]) {
   const now = Date.now();
   items.forEach((item) => {
+    const itemTimestamp = Number.isFinite(item.timestamp) && item.timestamp > 0 ? item.timestamp : now;
     marketStore[item.symbol] = {
       ...item,
-      timestamp: now,
+      timestamp: itemTimestamp,
       stale: false,
     };
   });
