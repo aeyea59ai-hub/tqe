@@ -1,5 +1,7 @@
 import { ProviderAdapter } from '../aiProviderGateway';
 import { AIProvider, AIProviderResponse } from '../../types';
+import { assertProviderUrlResolvable } from '../security/providerUrlPolicy';
+import { resolveSecretRef } from '../security/secretRef';
 import crypto from 'crypto';
 
 export class OpenAiCompatibleAdapter implements ProviderAdapter {
@@ -11,15 +13,21 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     this.baseUrl = provider.base_url?.replace(/\/$/, '') || 'http://127.0.0.1:11434/v1';
   }
 
+  /**
+   * Re-validate the configured base_url immediately before egress, including
+   * DNS resolution, so an approved hostname cannot be re-pointed at a private
+   * or link-local address between configuration and use.
+   */
+  private async assertEgressAllowed(): Promise<void> {
+    await assertProviderUrlResolvable(this.baseUrl);
+  }
+
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     };
-    if (this.providerConfig.secret_ref && this.providerConfig.secret_ref !== 'env:NONE') {
-      const key = this.providerConfig.secret_ref.startsWith('env:') 
-        ? process.env[this.providerConfig.secret_ref.substring(4)] 
-        : this.providerConfig.secret_ref;
-      
+    {
+      const key = resolveSecretRef(this.providerConfig.secret_ref);
       if (key) {
         headers['Authorization'] = `Bearer ${key}`;
       }
@@ -29,6 +37,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async list_models(): Promise<string[]> {
     try {
+      await this.assertEgressAllowed();
       const res = await fetch(`${this.baseUrl}/models`, {
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(5000)
@@ -46,6 +55,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async health_check(): Promise<boolean> {
     try {
+      await this.assertEgressAllowed();
       const res = await fetch(`${this.baseUrl}/models`, {
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(3000)
@@ -59,6 +69,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   async chat(prompt: string, history?: any[], context?: any): Promise<AIProviderResponse> {
     const startTime = Date.now();
     try {
+      await this.assertEgressAllowed();
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: this.getHeaders(),
@@ -95,6 +106,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   async stream_chat(prompt: string, onChunk: (text: string) => void, history?: any[]): Promise<AIProviderResponse> {
     const startTime = Date.now();
     try {
+      await this.assertEgressAllowed();
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: this.getHeaders(),

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { ProviderAdapter } from '../aiProviderGateway';
 import { AIProvider, AIProviderResponse } from '../../types';
+import { resolveSecretRef } from '../security/secretRef';
 import crypto from 'crypto';
 
 export class GeminiAdapter implements ProviderAdapter {
@@ -9,11 +10,11 @@ export class GeminiAdapter implements ProviderAdapter {
 
   constructor(provider: AIProvider) {
     this.providerConfig = provider;
-    // secret_ref would typically be a reference to an env var or secure vault
-    // for this adapter, we assume secret_ref contains the API key directly (for MVP) 
-    // or points to process.env.GEMINI_API_KEY
-    const apiKey = provider.secret_ref === 'env:GEMINI_API_KEY' ? process.env.GEMINI_API_KEY : provider.secret_ref;
-    
+    // `secret_ref` is an indirection only: it names an environment variable and
+    // is never itself a credential. A malformed or unset reference yields no
+    // key rather than silently sending the reference as one.
+    const apiKey = resolveSecretRef(provider.secret_ref);
+
     this.ai = new GoogleGenAI({
       apiKey: apiKey,
       httpOptions: {

@@ -1,5 +1,7 @@
 import { AIProvider, AIProviderResponse, RoutingMode } from '../types';
 import { db } from './db';
+import { assertProviderUrlAllowed } from './security/providerUrlPolicy';
+import { assertValidSecretRef, redactProvider } from './security/secretRef';
 import crypto from 'crypto';
 
 import { GeminiAdapter } from './adapters/geminiAdapter';
@@ -83,7 +85,37 @@ export class AIProviderGateway {
     return res ? res.routing_mode : 'AUTO';
   }
 
+  /**
+   * Providers as returned across the API boundary. Credential values are never
+   * included; only the name of the environment indirection and whether it
+   * currently resolves.
+   */
+  static getPublicProviders() {
+    return AIProviderGateway.getProviders().map(redactProvider);
+  }
+
+  /**
+   * Validate owner-supplied provider fields before they are persisted.
+   * `base_url` is constrained by the SSRF policy and `secret_ref` must be an
+   * environment indirection, so an inline API key can never reach the database.
+   */
+  static validateProviderInput(provider: Partial<AIProvider>): {
+    base_url: string | undefined;
+    secret_ref: string;
+  } {
+    const secret_ref = assertValidSecretRef(provider.secret_ref);
+
+    // MOCK providers make no outbound request and therefore need no base_url.
+    if (provider.provider_type === 'MOCK' && !provider.base_url) {
+      return { base_url: undefined, secret_ref };
+    }
+
+    const { url } = assertProviderUrlAllowed(provider.base_url);
+    return { base_url: url.toString().replace(/\/$/, ''), secret_ref };
+  }
+
   static addProvider(provider: Partial<AIProvider>) {
+    const { base_url, secret_ref } = AIProviderGateway.validateProviderInput(provider);
     const id = crypto.randomUUID();
     const stmt = db.prepare(`
       INSERT INTO ai_providers (
@@ -99,7 +131,7 @@ export class AIProviderGateway {
     const now = new Date().toISOString();
     stmt.run(
       id, provider.provider_type, provider.display_name, provider.enabled ? 1 : 0, 
-      provider.priority || 0, provider.base_url, provider.model, provider.secret_ref,
+      provider.priority || 0, base_url, provider.model, secret_ref,
       provider.routing_eligibility || 'ALL', provider.privacy_class || 'CLOUD',
       provider.timeout_seconds || 30, provider.max_retries || 2, provider.streaming_enabled ? 1 : 0,
       provider.supports_chat ? 1 : 0, provider.supports_tools ? 1 : 0, provider.supports_json_schema ? 1 : 0,
