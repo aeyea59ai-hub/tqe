@@ -15,9 +15,21 @@ import { generateDeterministicTradePlan, evaluateTradeRisk, DEFAULT_RISK_CONFIG 
 import { runCouncilDeliberation } from './src/lib/aiCouncilEngine';
 import { processChatAssistantQuery } from './src/lib/aiChatEngine';
 import { runHistoricalBacktest, generateHistoricalCandles2023ToPresent } from './src/lib/backtestEngine';
-import { Candle, CanonicalSnapshot, CouncilDeliberation, DerivativesData, FrozenEvidenceBundle, MarketContext, OrderBook, QualityReport, ScanCandidate, SymbolInfo } from './src/types';
+import { Candle, CanonicalSnapshot, CouncilDeliberation, DerivativesData, FrozenEvidenceBundle, MarketContext, OrderBook, QualityReport, RoutingMode, ScanCandidate, SymbolInfo } from './src/types';
+import { assertBoundedNumber, assertInterval, assertSymbol } from './src/lib/security/marketParams';
+import { ApiError, sendError } from './src/lib/security/httpErrors';
 
-const PORT = 3000;
+const ROUTING_MODES: RoutingMode[] = [
+  'AUTO', 'MANUAL', 'LOCAL_ONLY', 'CLOUD_ONLY',
+  'PRIVACY_FIRST', 'QUALITY_FIRST', 'SPEED_FIRST', 'COST_FIRST',
+];
+
+const PORT = Number(process.env.PORT) || 3000;
+
+// The product is local-first and single-owner. Blueprint 0046 requires services
+// to bind loopback only, so the API is never exposed on the local network by
+// default. HOST may be overridden deliberately by the operator.
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Initialize Google GenAI
 const ai = new GoogleGenAI({
@@ -188,8 +200,14 @@ async function startServer() {
 
   // API 2: Kline & Snapshot Engine
   app.get('/api/market/snapshot', async (req, res) => {
-    const symbol = (req.query.symbol as string) || 'BTCUSDT';
-    const tf = (req.query.tf as string) || '15m';
+    let symbol: string;
+    let tf: string;
+    try {
+      symbol = assertSymbol(req.query.symbol, 'BTCUSDT');
+      tf = assertInterval(req.query.tf, '15m');
+    } catch (err) {
+      return sendError(res, err, 'GET /api/market/snapshot');
+    }
 
     let candles: Candle[] = [];
     try {
@@ -510,18 +528,18 @@ async function startServer() {
   // API 7: Multi-Year Backtest Engine (2023 - Present)
   app.post('/api/backtest/run', async (req, res) => {
     try {
-      const {
-        symbol = 'BTCUSDT',
-        timeframe = '1h',
-        startDate = '2023-01-01',
-        endDate = '2026-08-10',
-        initialBalance = 10000,
-        riskPerTradePct = 1.0,
-        maxLeverage = 10,
-      } = req.body;
+      const body = req.body ?? {};
+      const symbol = assertSymbol(body.symbol, 'BTCUSDT');
+      const timeframe = assertInterval(body.timeframe, '1h');
+      const initialBalance = assertBoundedNumber(body.initialBalance, 'initialBalance', 1, 1_000_000_000, 10000);
+      const riskPerTradePct = assertBoundedNumber(body.riskPerTradePct, 'riskPerTradePct', 0.01, 100, 1.0);
+      const maxLeverage = assertBoundedNumber(body.maxLeverage, 'maxLeverage', 1, 125, 10);
 
-      const startMs = new Date(startDate).getTime();
-      const endMs = new Date(endDate).getTime();
+      const startMs = new Date(body.startDate ?? '2023-01-01').getTime();
+      const endMs = new Date(body.endDate ?? '2026-08-10').getTime();
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+        throw new ApiError('INVALID_REQUEST', 'startDate and endDate must be valid ISO dates.');
+      }
 
       let candles: Candle[] = [];
 
@@ -558,25 +576,31 @@ async function startServer() {
       const report = runHistoricalBacktest(candles, symbol, timeframe, initialBalance, riskPerTradePct, maxLeverage);
 
       res.json({ success: true, report });
-    } catch (err: any) {
-      console.error('Backtest Engine Error:', err);
-      res.status(500).json({ success: false, error: err?.message || 'Backtest failed' });
+    } catch (err) {
+      sendError(res, err, 'POST /api/backtest/run');
     }
   });
 
-  // Vite Middleware for Dev, Static for Production
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  // Vite middleware for dev, static assets plus SPA fallback for production.
+  //
+  // This must be registered *after* every API route. The `app.get('*')` fallback
+  // matches any unclaimed path, so while it was registered here — before the
+  // /api/v1/ai/* routes below — all six AI gateway endpoints were shadowed by
+  // index.html in production builds and never executed.
+  async function mountClient() {
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
   
@@ -585,10 +609,10 @@ async function startServer() {
 
 app.get('/api/v1/ai/providers', (req, res) => {
   try {
-    const providers = AIProviderGateway.getProviders();
+    const providers = AIProviderGateway.getPublicProviders();
     res.json({ success: true, providers });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    sendError(res, err, 'GET /api/v1/ai/providers');
   }
 });
 
@@ -596,8 +620,8 @@ app.post('/api/v1/ai/providers', (req, res) => {
   try {
     const id = AIProviderGateway.addProvider(req.body);
     res.json({ success: true, id });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    sendError(res, err, 'POST /api/v1/ai/providers');
   }
 });
 
@@ -605,25 +629,26 @@ app.delete('/api/v1/ai/providers/:id', (req, res) => {
   try {
     db.prepare('DELETE FROM ai_providers WHERE id = ?').run(req.params.id);
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    sendError(res, err, 'DELETE /api/v1/ai/providers/:id');
   }
 });
 
 app.patch('/api/v1/ai/providers/:id', (req, res) => {
   // Simplified for mvp - in reality, dynamic SQL builder or individual fields
   try {
-    const p = req.body;
+    const p = req.body ?? {};
+    const { base_url, secret_ref } = AIProviderGateway.validateProviderInput(p);
     db.prepare(`UPDATE ai_providers SET 
       display_name = ?, enabled = ?, priority = ?, base_url = ?, model = ?,
       secret_ref = ?, privacy_class = ?, timeout_seconds = ?, max_retries = ?, updated_at_utc = ?
       WHERE id = ?`).run(
-      p.display_name, p.enabled ? 1 : 0, p.priority, p.base_url, p.model,
-      p.secret_ref, p.privacy_class, p.timeout_seconds, p.max_retries, new Date().toISOString(), req.params.id
+      p.display_name, p.enabled ? 1 : 0, p.priority, base_url, p.model,
+      secret_ref, p.privacy_class, p.timeout_seconds, p.max_retries, new Date().toISOString(), req.params.id
     );
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    sendError(res, err, 'PATCH /api/v1/ai/providers/:id');
   }
 });
 
@@ -633,16 +658,21 @@ app.get('/api/v1/ai/routing', (req, res) => {
 
 app.patch('/api/v1/ai/routing', (req, res) => {
   try {
-    const mode = req.body.routing_mode;
+    const mode = req.body?.routing_mode;
+    if (!ROUTING_MODES.includes(mode)) {
+      throw new ApiError('INVALID_REQUEST', `routing_mode must be one of: ${ROUTING_MODES.join(', ')}`);
+    }
     db.prepare("UPDATE ai_routing_policy SET routing_mode = ? WHERE id = 'default'").run(mode);
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    sendError(res, err, 'PATCH /api/v1/ai/routing');
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Signal Desk Unified v2.0 server running on http://0.0.0.0:${PORT}`);
+  await mountClient();
+
+app.listen(PORT, HOST, () => {
+    console.log(`Signal Desk Unified v2.0 server running on http://${HOST}:${PORT}`);
   });
 }
 
