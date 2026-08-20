@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: install / lint / build / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pinned to the engines range in app/package.json. The original Phase 1 ran
+      # Node v22.16.0, where jsdom@30 and undici@8 warn that a newer Node 22
+      # patch is required.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Record environment
+        run: |
+          mkdir -p ../evidence
+          {
+            echo "date_utc=$(date -u +%FT%TZ)"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "commit=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+          } | tee ../evidence/environment.txt
+
+      - name: Install from lockfile
+        run: npm ci --no-audit --no-fund 2>&1 | tee ../evidence/install.log
+
+      - name: Lint (tsc --noEmit)
+        run: npm run lint 2>&1 | tee ../evidence/lint.log
+
+      - name: Test (vitest)
+        run: npm test 2>&1 | tee ../evidence/test.log
+
+      - name: Build (vite + esbuild)
+        run: npm run build 2>&1 | tee ../evidence/build.log
+
+      - name: Smoke-check the production build
+        run: |
+          NODE_ENV=production node dist/server.cjs > ../evidence/serve.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/; then break; fi
+            sleep 1
+          done
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/)
+          echo "index_status=${STATUS}" | tee -a ../evidence/serve.log
+          kill "${SERVER_PID}"
+          test "${STATUS}" = "200"
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-evidence-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
+
+  guards:
+    name: safety guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+
+      # TC-SEC-001: the final tree must contain no live-order, signed-request,
+      # private-key, withdrawal or transfer surface.
+      - name: Forbidden-surface scan (TC-SEC-001)
+        run: node scripts/check-forbidden-surfaces.mjs
+
+      # Deterministic code owns every decision-critical number. Fabricated data
+      # must never reach a price, indicator, derivative, risk, sizing or
+      # paper-accounting path.
+      - name: Non-determinism guard
+        run: node scripts/check-determinism.mjs
